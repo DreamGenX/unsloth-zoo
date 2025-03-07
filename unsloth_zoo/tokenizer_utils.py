@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from typing import List, Tuple
 import torch
 import gc
 import numpy as np
@@ -72,7 +73,7 @@ pass
 @dataclass
 class NewToken:
     label: str
-    initial_embedding: list[tuple[str, float]] = field(default_factory=lambda: [])
+    initial_embedding: List[Tuple[str, float]] = field(default_factory=lambda: [])
     initial_embedding_interpolation: float = 0.0 # 1.0 means we use only initial_embedding, 0.0 means we use only the global mean
 
 
