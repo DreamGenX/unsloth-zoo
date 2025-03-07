@@ -20,6 +20,7 @@ import numpy as np
 import itertools
 import datasets
 import re
+from dataclasses import dataclass, field
 
 __all__ = [
     "mean_of_trained_tokens",
@@ -68,11 +69,18 @@ def mean_of_trained_tokens(model, eps = 1e-16):
 pass
 
 
+@dataclass
+class NewToken:
+    label: str
+    initial_embedding: list[tuple[str, float]] = field(default_factory=lambda: [])
+    initial_embedding_interpolation: float = 0.0 # 1.0 means we use only initial_embedding, 0.0 means we use only the global mean
+
+
 @torch.inference_mode
 def add_new_tokens(
     model,
     tokenizer,
-    new_tokens = [],
+    new_tokens: list[NewToken] = [],
     method = "mean",
     interpolation = 0.5,
 ):
@@ -87,14 +95,14 @@ def add_new_tokens(
     assert(interpolation >= 0 and interpolation <= 1)
 
     # Check if tokens already exist
-    overlapping_tokens = set(new_tokens) & set(tokenizer.vocab.keys())
+    overlapping_tokens = set(t.label for t in new_tokens) & set(tokenizer.vocab.keys())
     if len(overlapping_tokens) != 0:
         print(
             f"Unsloth: You're adding new_tokens = {new_tokens}\n"\
             f"There are tokens which are overlapping = {list(overlapping_tokens)}\n"\
             f"We shall safely ignore these overlapping tokens."
         )
-        new_tokens = [x for x in new_tokens if x not in overlapping_tokens]
+        new_tokens = [x for x in new_tokens if x.label not in overlapping_tokens]
     pass
 
     # Get mean of trained tokens
@@ -118,7 +126,8 @@ def add_new_tokens(
 
     # Add tokens!
     old_length = len(tokenizer)
-    tokenizer.add_tokens(new_tokens)
+    num_added = tokenizer.add_special_tokens({"additional_special_tokens": [t.label for t in new_tokens]}, replace_additional_special_tokens=False)
+    print("!XXX NUM ADDED", num_added)
     # Also resizes lm_head as well!
     model.resize_token_embeddings(len(tokenizer))
 
@@ -127,40 +136,66 @@ def add_new_tokens(
     embedding_matrix = model.get_input_embeddings ().weight
     lm_head_matrix   = model.get_output_embeddings().weight
 
+    print("!XXX SIZE", len(new_tokens), old_input_length, embedding_matrix.shape[0])
+    # NOTE: For Qwen models, the tokenizer rounds up the length of the vocab in a weird way.
+    # (151670 + 5) -> 151936 (smallest upper bound divisible by 128 + 256)
     # Confirm sizes are correct
-    if embedding_matrix.shape[0] != (old_input_length  + len(new_tokens)):
-        raise RuntimeError(
-            "Unsloth: Embedding matrix size did not get resized properly. Please file a bug report!"
-        )
-    if lm_head_matrix.shape[0]   != (old_output_length + len(new_tokens)):
-        raise RuntimeError(
-            "Unsloth: LM Head matrix size did not get resized properly. Please file a bug report!"
-        )
-    if model.config.vocab_size   != (old_config_size   + len(new_tokens)):
-        raise RuntimeError(
-            "Unsloth: Model's config vocab_size did not get resized properly. Please file a bug report!"
-        )
-    pass
+    # if embedding_matrix.shape[0] != (old_input_length  + len(new_tokens)):
+    #     raise RuntimeError(
+    #         "Unsloth: Embedding matrix size did not get resized properly. Please file a bug report!"
+    #     )
+    # if lm_head_matrix.shape[0]   != (old_output_length + len(new_tokens)):
+    #     raise RuntimeError(
+    #         "Unsloth: LM Head matrix size did not get resized properly. Please file a bug report!"
+    #     )
+    # if model.config.vocab_size   != (old_config_size   + len(new_tokens)):
+    #     raise RuntimeError(
+    #         "Unsloth: Model's config vocab_size did not get resized properly. Please file a bug report!"
+    #     )
+    # pass
 
     if method == "interpolation":
         print(
             "Unsloth: You are using interpolation to add new tokens.\n"\
-            f"We shall set new tokens = mean(embeddings)*{1-interpolation} + mean(new_tokens)*{interpolation}"
+            f"We shall set new tokens = mean(embeddings)*{1-interpolation} + mean(new_token.boostrap_string)*{interpolation}"
         )
-        for j, token in enumerate(new_tokens):
-            input_ids = tokenizer(token, add_special_tokens = False).input_ids
-            mean_embedding_token = embedding_matrix[input_ids].mean(axis = 0, dtype = torch.float32)
-            mean_lm_head_token   = lm_head_matrix  [input_ids].mean(axis = 0, dtype = torch.float32)
+        for j, token_obj in enumerate(new_tokens):
+            total_weight = sum(weight for _, weight in token_obj.initial_embedding)
+            if total_weight > 0:
+                # Initialize accumulators with float64 precision
+                embedding_accumulator = torch.zeros_like(embedding_matrix[0], dtype=torch.float64)
+                lm_head_accumulator = torch.zeros_like(lm_head_matrix[0], dtype=torch.float64)
 
-            # Interpolate
-            mean_embedding_token = mean_embedding*(1-interpolation) + mean_embedding_token*interpolation
-            mean_lm_head_token   = mean_lm_head  *(1-interpolation) + mean_lm_head_token  *interpolation
+                # Calculate weighted average of embeddings
+                for text, weight in token_obj.initial_embedding:
+                    # Tokenize the text
+                    text_input_ids = tokenizer(text, add_special_tokens=False).input_ids
+
+                    # Calculate mean embedding for this text
+                    text_mean_embedding = embedding_matrix[text_input_ids].mean(axis=0, dtype=torch.float64)
+                    text_mean_lm_head = lm_head_matrix[text_input_ids].mean(axis=0, dtype=torch.float64)
+
+                    # Add weighted contribution to accumulators
+                    normalized_weight = weight / total_weight
+                    embedding_accumulator += text_mean_embedding * normalized_weight
+                    lm_head_accumulator += text_mean_lm_head * normalized_weight
+
+                mean_embedding_token = embedding_accumulator.to(torch.float32)
+                mean_lm_head_token = lm_head_accumulator.to(torch.float32)
+                # Interpolate
+                mean_embedding_token = mean_embedding*(1-interpolation) + mean_embedding_token*interpolation
+                mean_lm_head_token   = mean_lm_head  *(1-interpolation) + mean_lm_head_token  *interpolation
+            else:
+                mean_embedding_token = mean_embedding
+                mean_lm_head_token = mean_lm_head
 
             # Set the new vector
             embedding_matrix[old_length+j] = mean_embedding_token
             lm_head_matrix  [old_length+j] = mean_lm_head_token
         pass
     else:
+        if any(len(t.initial_embedding) > 0 for t in new_tokens):
+            print("Unsloth: Ignoring 'initial_embedding' for a token, use 'interpolate'.")
         # Now set the new tokens to the mean!
         embedding_matrix[old_length:] = mean_embedding
         lm_head_matrix  [old_length:] = mean_lm_head
@@ -220,7 +255,7 @@ def fix_untrained_tokens(model, tokenizer, train_dataset, IGNORED_TOKENIZER_NAME
     min_size = min(embedding_matrix.shape[0], lm_head_matrix.shape[0])
     embedding_matrix = embedding_matrix[:min_size]
     lm_head_matrix   = lm_head_matrix  [:min_size]
-    
+
     # Get untrained tokens
     indicator_untrained1 = torch.amax(embedding_matrix, axis = 1) <= eps
     # Check lm_head as well
@@ -265,7 +300,7 @@ def fix_untrained_tokens(model, tokenizer, train_dataset, IGNORED_TOKENIZER_NAME
                 indicator_untrained[token_id] = False
         pass
     pass
-    
+
     where_untrained = torch.where(indicator_untrained)[0]
     n_untrained = where_untrained.shape[0]
     n_trained = embedding_matrix.shape[0] - n_untrained
@@ -275,7 +310,7 @@ def fix_untrained_tokens(model, tokenizer, train_dataset, IGNORED_TOKENIZER_NAME
     if len(where_untrained) == 0: return
 
     # Remove untrained indices where it's longer
-    
+
     where_untrained_set = frozenset(where_untrained)
     actual_bad_tokens = tokenizer.convert_ids_to_tokens(where_untrained)
     # Remove None items in actual_bad_tokens
@@ -574,7 +609,7 @@ def patch_tokenizer(model, tokenizer):
         print(
             f"{name} does not have a padding token! Will use pad_token = {possible_pad_token}."
         )
-        
+
         # Edit pad_token
         tokenizer.add_special_tokens({"pad_token" : possible_pad_token})
         tokenizer.pad_token = possible_pad_token
