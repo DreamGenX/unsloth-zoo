@@ -81,7 +81,7 @@ class NewToken:
 def add_new_tokens(
     model,
     tokenizer,
-    new_tokens: list[NewToken] = [],
+    new_tokens: List[NewToken] = [],
     method = "mean",
     interpolation = 0.5,
 ):
