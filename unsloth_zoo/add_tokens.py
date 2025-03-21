@@ -37,17 +37,17 @@ NEW_TOKENS_LLAMA3 = [
 ]
 
 NEW_TOKENS_LLAMA3_QWQ = [
-    # We rename the tokens instead.
+    NewToken(
+        label="<|end_header_id|>",
+        initial_embedding=[("\n", 1)],
+        initial_embedding_interpolation=0.9,
+    ),
+    # We rename the existing tokens instead.
     # NewToken(
     #     label="<|start_header_id|>",
     #     initial_embedding=[("<|im_start|>", 1)],
     #     initial_embedding_interpolation=0.8,
     # ),
-    NewToken(
-        label="<|end_header_id|>",
-        initial_embedding=[("\n", 1)],
-        initial_embedding_interpolation=0.75,
-    ),
     # NewToken(
     #     label="<|eot_id|>",
     #     initial_embedding=[("<|im_end|>", 0.8), ("\n", 0.2)],
@@ -117,6 +117,8 @@ if __name__ == "__main__":
         new_tokens = NEW_TOKENS_LLAMA3
     elif args.template.lower() == "chatml":
         new_tokens = NEW_TOKENS_CHATML
+    elif args.template.lower() == "llama3_qwq":
+        new_tokens = NEW_TOKENS_LLAMA3_QWQ
     else:
         raise RuntimeError(f"Unknown template {args.template}")
 
