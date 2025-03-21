@@ -102,7 +102,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--template",
         type=str,
-        choices=["llama3", "chatml"],
+        choices=["llama3", "chatml", "llama3_qwq"],
         required=True,
         help="Template to use for new tokens",
     )
