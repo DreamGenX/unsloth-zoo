@@ -8,7 +8,7 @@ from tokenizer_utils import add_new_tokens, NewToken
 
 DEFAULT_INTERPOLATION = 0.5
 
-NEW_TOKENS_GEMMA3 = [
+NEW_TOKENS_GEMMA = [
     NewToken(
         label="<start_of_turn>",
         initial_embedding=[(" start", 0.5), (" message", 0.5)],
@@ -125,7 +125,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--template",
         type=str,
-        choices=["llama3", "chatml", "llama3_qwq"],
+        choices=["llama3", "chatml", "llama3_qwq", "gemma"],
         required=True,
         help="Template to use for new tokens",
     )
@@ -142,6 +142,8 @@ if __name__ == "__main__":
         new_tokens = NEW_TOKENS_CHATML
     elif args.template.lower() == "llama3_qwq":
         new_tokens = NEW_TOKENS_LLAMA3_QWQ
+    elif args.template.lower() == "gemma":
+        new_tokens = NEW_TOKENS_GEMMA
     else:
         raise RuntimeError(f"Unknown template {args.template}")
 
