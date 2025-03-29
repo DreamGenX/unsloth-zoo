@@ -8,6 +8,29 @@ from tokenizer_utils import add_new_tokens, NewToken
 
 DEFAULT_INTERPOLATION = 0.5
 
+NEW_TOKENS_GEMMA3 = [
+    NewToken(
+        label="<start_of_turn>",
+        initial_embedding=[(" start", 0.5), (" message", 0.5)],
+        initial_embedding_interpolation=DEFAULT_INTERPOLATION,
+    ),
+    NewToken(
+        label="<end_of_turn>",
+        initial_embedding=[(" end", 0.5), (" message", 0.5)],
+        initial_embedding_interpolation=DEFAULT_INTERPOLATION,
+    ),
+    NewToken(
+        label="<|reasoning_start|>",
+        initial_embedding=[(" start", 0.5), (" thinking", 0.5)],
+        initial_embedding_interpolation=DEFAULT_INTERPOLATION,
+    ),
+    NewToken(
+        label="<|reasoning_end|>",
+        initial_embedding=[(" end", 0.5), (" thinking", 0.5)],
+        initial_embedding_interpolation=DEFAULT_INTERPOLATION,
+    ),
+]
+
 NEW_TOKENS_LLAMA3 = [
     NewToken(
         label="<|start_header_id|>",
